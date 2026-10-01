@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neon Coast</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; overflow: hidden; background: #091723;
+    color: white; font-family: system-ui, sans-serif;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 20px; left: 20px; pointer-events: none;
+    padding: 16px 20px; border: 1px solid #ffffff25;
+    border-radius: 15px; background: #091323dc;
+    max-width: min(420px, calc(100vw - 40px));
+    box-shadow: 0 10px 40px #0005;
+  }
+  .brand {
+    color: #ff66b2; font-size: 24px; font-weight: 900;
+    letter-spacing: 3px; text-shadow: 0 0 20px #ff45a480;
+  }
+  .subtitle { color: #7bdede; font-size: 10px; letter-spacing: 4px; }
+  #stats { margin-top: 14px; font-weight: 700; font-size: 14px; }
+  #mission { margin-top: 10px; color: #c8d7e4; font-size: 13px; line-height: 1.5; }
+  #healthTrack {
+    margin-top: 12px; height: 5px; background: #ffffff18; border-radius: 5px;
+  }
+  #health { height: 100%; width: 100%; background: #60ead7; border-radius: 5px; }
+  #hint {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    padding: 12px 18px; background: #091323df; border: 1px solid #ffffff25;
+    border-radius: 12px; font-size: 13px; text-align: center;
+    pointer-events: none; width: max-content; max-width: 92vw;
+  }
+  #toast {
+    position: fixed; top: 28px; left: 50%; transform: translateX(-50%);
+    background: #ff64ac; color: #161526; padding: 12px 20px;
+    border-radius: 10px; font-weight: 800; opacity: 0;
+    pointer-events: none; transition: opacity .2s;
+  }
+  #overlay {
+    position: fixed; inset: 0; background: #06101ada;
+    display: grid; place-items: center; backdrop-filter: blur(8px);
+  }
+  .panel {
+    width: min(500px, 90vw); padding: 36px; border-radius: 22px;
+    background: linear-gradient(145deg, #1b253b, #111728);
+    border: 1px solid #ff65aa50; box-shadow: 0 0 100px #ff469c15;
+  }
+  h1 { font-size: clamp(35px, 8vw, 55px); margin: 0; color: #ff69b4; }
+  .panel p { line-height: 1.7; color: #becdde; }
+  .controls {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    margin: 25px 0; font-size: 13px; color: #a9c0d5;
+  }
+  .controls b { color: #72e6df; }
+  button {
+    background: #ff69b4; border: none; border-radius: 10px;
+    color: #101425; font: inherit; font-weight: 850; padding: 14px 22px;
+    cursor: pointer;
+  }
+  #touch {
+    display: none; position: fixed; bottom: 85px; left: 15px; right: 15px;
+    justify-content: space-between; pointer-events: none;
+  }
+  .pad { display: grid; grid-template-columns: repeat(3, 46px); gap: 5px; }
+  #touch button {
+    width: 46px; height: 46px; padding: 0; background: #182d42ca;
+    border: 1px solid #7cdefe50; color: #fff; pointer-events: auto;
+    touch-action: none; user-select: none;
+  }
+  .actions { display: flex; align-items: flex-end; gap: 8px; }
+  @media (pointer: coarse) {
+    #touch { display: flex; }
+    #hint { bottom: 15px; font-size: 11px; }
+    #hud { top: 12px; left: 12px; padding: 12px; }
+    .brand { font-size: 19px; }
+    #toast { top: 185px; width: max-content; max-width: 90vw; text-align: center; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="brand">NEON COAST</div>
+  <div class="subtitle">AFTER HOURS · OPEN WORLD</div>
+  <div id="stats"></div>
+  <div id="healthTrack"><div id="health"></div></div>
+  <div id="mission"></div>
+</div>
+
+<div id="toast"></div>
+<div id="hint">WASD / Arrows: move · E: enter / exit car · Space: brake · P: pause</div>
+
+<div id="touch">
+  <div class="pad">
+    <span></span><button data-key="KeyW">▲</button><span></span>
+    <button data-key="KeyA">◀</button><button data-key="KeyS">▼</button>
+    <button data-key="KeyD">▶</button>
+  </div>
+  <div class="actions">
+    <button data-key="Space">■</button>
+    <button id="enterCar">E</button>
+  </div>
+</div>
+
+<div id="overlay">
+  <div class="panel">
+    <div class="subtitle">A LITTLE CITY. A LONG NIGHT.</div>
+    <h1>NEON COAST</h1>
+    <p>Cruise the waterfront, take courier jobs, and earn cash.
+      Reckless crashes attract police. Keep moving until the heat cools off.</p>
+    <div class="controls">
+      <div><b>WASD / Arrows</b><br>Walk / drive</div>
+      <div><b>E</b><br>Enter / exit a car</div>
+      <div><b>Space</b><br>Brake</div>
+      <div><b>P</b><br>Pause / resume</div>
+    </div>
+    <p>Find the <b style="color:#61eee0">cyan marker</b> for a pickup.
+      Deliver to the <b style="color:#ff73bb">pink marker</b>.
+      Slow down inside each marker.</p>
+    <button id="start">HIT THE STREETS →</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const $ = id => document.getElementById(id);
+  const keys = new Set();
+  const TAU = Math.PI * 2;
+  const WORLD = { w: 2800, h: 2200, land: 2450 };
+  let W = innerWidth, H = innerHeight, dpr = 1;
+  let started = false, paused = false, clock = 0, last = 0;
+  let money = 0, health = 100, heat = 0, completed = 0;
+  let toastTime = 0, policeTimer = 0, damageFlash = 0;
+  let vehicle = null;
+  const camera = { x: 450, y: 850 };
+  const player = { x: 450, y: 850, angle: 0 };
+  const buildings = [], palms = [], cars = [], police = [], walkers = [];
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const random = (a, b) => a + Math.random() * (b - a);
+  const choose = a => a[Math.floor(Math.random() * a.length)];
+  const down = (...codes) => codes.some(c => keys.has(c));
+  const actor = () => vehicle || player;
+
+function resize() {
+    W = innerWidth; H = innerHeight;
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+  }
+  addEventListener("resize", resize);
+  resize();
+
+const names = [
+    "PALM HOTEL", "CASSETTE CLUB", "SUNSET MALL",
+    "OCEAN VIDEO", "NIGHT MARKET", "STARLIGHT", "PARADISE"
+  ];
+
+for (let gx = 0; gx < 6; gx++) {
+    for (let gy = 0; gy < 5; gy++) {
+      const x = gx * 400, y = gy * 400;
+      buildings.push({
+        x: x + 142, y: y + 142, w: 207, h: 207,
+        color: choose(["#28354b", "#35314b", "#243f49", "#3b3045"]),
+        neon: choose(["#fb67b1", "#5de6de", "#c692ff"]),
+        name: names[(gx * 3 + gy) % names.length]
+      });
+      palms.push({ x: x + 115, y: y + 115 }, { x: x + 375, y: y + 375 });
+      if ((gx + gy) % 2 === 0) {
+        cars.push({
+          x: x + 185, y: y + 78, angle: 0, speed: 0,
+          color: choose(["#ff68ad", "#ffe18a", "#59d6d5", "#b59bff", "#f3eee5"])
+        });
+      }
+      walkers.push({
+        x: x + 120, y: y + 115, baseX: x + 120, baseY: y + 115,
+        phase: random(0, TAU), color: choose(["#ffe3bc", "#a8ddde", "#ff9ac2"])
+      });
+    }
+  }
+
+cars.push({ x: 500, y: 850, angle: 0, speed: 0, color: "#ff69b4" });
+
+const jobPoints = [
+    { x: 450, y: 450, name: "Cassette Club" },
+    { x: 2050, y: 1650, name: "Ocean Terrace" },
+    { x: 850, y: 1250, name: "Night Market" },
+    { x: 1650, y: 450, name: "Palm Hotel" },
+    { x: 1250, y: 850, name: "Sunset Mall" },
+    { x: 450, y: 1650, name: "Starlight Lounge" },
+    { x: 2050, y: 850, name: "Paradise Arcade" }
+  ];
+  let pickup = jobPoints[0], destination = jobPoints[1], carrying = false;
+  let jobCooldown = 0;
+
+function notify(text) {
+    $("toast").textContent = text;
+    toastTime = 3.5;
+    $("toast").style.opacity = 1;
+  }
+
+function blocked(x, y, radius) {
+    if (x < radius || y < radius ||
+        x > WORLD.land - radius || y > WORLD.h - radius) return true;
+    return buildings.some(b => {
+      const nx = clamp(x, b.x, b.x + b.w);
+      const ny = clamp(y, b.y, b.y + b.h);
+      return Math.hypot(x - nx, y - ny) < radius;
+    });
+  }
+
+function move(body, dx, dy, radius) {
+    let hit = false;
+    if (!blocked(body.x + dx, body.y, radius)) body.x += dx;
+    else hit = true;
+    if (!blocked(body.x, body.y + dy, radius)) body.y += dy;
+    else hit = true;
+    return hit;
+  }
+
+function interact() {
+    if (!started || paused) return;
+    if (vehicle) {
+      if (Math.abs(vehicle.speed) > 65) {
+        notify("Slow down before getting out.");
+        return;
+      }
+      for (const offset of [Math.PI / 2, -Math.PI / 2, Math.PI]) {
+        const a = vehicle.angle + offset;
+        const x = vehicle.x + Math.cos(a) * 42;
+        const y = vehicle.y + Math.sin(a) * 42;
+        if (!blocked(x, y, 12)) {
+          player.x = x; player.y = y; player.angle = vehicle.angle;
+          vehicle.speed = 0; vehicle = null;
+          return;
+        }
+      }
+      notify("Not enough room to get out.");
+    } else {
+      const nearby = cars.filter(c => dist(c, player) < 72)
+        .sort((a, b) => dist(a, player) - dist(b, player))[0];
+      if (nearby) {
+        vehicle = nearby;
+        notify("Cruise carefully. Crashes attract attention.");
+      } else notify("Get closer to a parked car.");
+    }
+  }
+
+function togglePause() {
+    if (!started) return;
+    paused = !paused;
+    keys.clear();
+    $("overlay").style.display = paused ? "grid" : "none";
+    $("start").textContent = "RESUME →";
+  }
+
+addEventListener("keydown", e => {
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code))
+      e.preventDefault();
+    keys.add(e.code);
+    if (!e.repeat && e.code === "KeyE") interact();
+    if (!e.repeat && e.code === "KeyP") togglePause();
+  });
+  addEventListener("keyup", e => keys.delete(e.code));
+  addEventListener("blur", () => {
+    keys.clear();
+    if (started && !paused) togglePause();
+  });
+
+document.querySelectorAll("[data-key]").forEach(button => {
+    button.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      button.setPointerCapture(e.pointerId);
+      keys.add(button.dataset.key);
+    });
+    const release = () => keys.delete(button.dataset.key);
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+  });
+  $("enterCar").onclick = interact;
+  $("start").onclick = () => {
+    const first = !started;
+    started = true; paused = false; keys.clear();
+    $("overlay").style.display = "none";
+    if (first) notify("Your pink ride is nearby. Press E to get in.");
+  };
+
+function spawnPolice() {
+    const p = actor();
+    // Spawn at an actual road intersection, away from the player.
+    const options = [];
+    for (let x = 50; x < WORLD.land; x += 400) {
+      for (let y = 50; y < WORLD.h; y += 400) {
+        const distance = Math.hypot(x - p.x, y - p.y);
+        if (distance > 500 && distance < 1100) options.push({ x, y });
+      }
+    }
+    if (options.length) {
+      const pos = choose(options);
+      police.push({ ...pos, angle: 0, speed: 210, color: "#e4ecf7", route: null });
+    }
+  }
+
+function updatePolice(cop, dt) {
+    const p = actor();
+    // Travel along the connected road grid, then intercept on clear stretches.
+    const gx = clamp(Math.round((p.x - 50) / 400), 0, 5);
+    const gy = clamp(Math.round((p.y - 50) / 400), 0, 5);
+
+if (!cop.route || dist(cop, cop.route) < 12) {
+      const cx = clamp(Math.round((cop.x - 50) / 400), 0, 5);
+      const cy = clamp(Math.round((cop.y - 50) / 400), 0, 5);
+      const next = { x: cx, y: cy };
+      if (cx !== gx && (cy === gy || Math.abs(gx - cx) >= Math.abs(gy - cy)))
+        next.x += Math.sign(gx - cx);
+      else if (cy !== gy) next.y += Math.sign(gy - cy);
+      cop.route = { x: next.x * 400 + 50, y: next.y * 400 + 50 };
+    }
+
+let target = cop.route;
+    const distance = dist(cop, p);
+    if (distance < 430) {
+      let clear = true;
+      for (let i = 1; i <= 12; i++) {
+        if (blocked(cop.x + (p.x - cop.x) * i / 12,
+                    cop.y + (p.y - cop.y) * i / 12, 21)) {
+          clear = false; break;
+        }
+      }
+      if (clear) { target = p; cop.route = null; }
+    }
+
+const a = Math.atan2(target.y - cop.y, target.x - cop.x);
+    const step = Math.min(dist(cop, target), (195 + heat * 18) * dt);
+    cop.angle = a;
+    const hit = move(cop, Math.cos(a) * step, Math.sin(a) * step, 20);
+    if (hit) {
+      // Return to a road junction if a pursuit ended beside a building.
+      const nx = clamp(Math.round((cop.x - 50) / 400), 0, 5) * 400 + 50;
+      const ny = clamp(Math.round((cop.y - 50) / 400), 0, 5) * 400 + 50;
+      cop.route = Math.abs(cop.x - nx) < Math.abs(cop.y - ny)
+        ? { x: nx, y: cop.y } : { x: cop.x, y: ny };
+    }
+    if (distance < 44) {
+      health -= 19 * dt;
+      damageFlash = .12;
+      if (vehicle) vehicle.speed *= Math.exp(-1.4 * dt);
+    }
+  }
+
+function respawn() {
+    money = Math.max(0, money - 150);
+    health = 100; heat = 0; police.length = 0;
+    if (vehicle) vehicle.speed = 0;
+    vehicle = null;
+    player.x = 450; player.y = 850;
+    carrying = false; jobCooldown = 2;
+    notify("Busted! $150 fee. Back on the streets.");
+  }
+
+function update(dt) {
+    clock += dt;
+    toastTime -= dt;
+    if (toastTime <= 0) $("toast").style.opacity = 0;
+    damageFlash = Math.max(0, damageFlash - dt);
+    jobCooldown = Math.max(0, jobCooldown - dt);
+
+const forward = Number(down("KeyW", "ArrowUp"));
+    const backward = Number(down("KeyS", "ArrowDown"));
+    const left = Number(down("KeyA", "ArrowLeft"));
+    const right = Number(down("KeyD", "ArrowRight"));
+
+if (vehicle) {
+      const c = vehicle;
+      c.speed += (forward * 360 - backward * 290) * dt;
+      c.speed *= Math.exp(-(down("Space") ? 5 : (forward || backward) ? .35 : 1.1) * dt);
+      c.speed = clamp(c.speed, -175, 480);
+      if (Math.abs(c.speed) > 8)
+        c.angle += (right - left) * 2.4 *
+          clamp(Math.abs(c.speed) / 150, 0, 1) * Math.sign(c.speed) * dt;
+
+const impact = Math.abs(c.speed);
+      if (move(c, Math.cos(c.angle) * c.speed * dt,
+                  Math.sin(c.angle) * c.speed * dt, 23)) {
+        if (impact > 100) {
+          health -= impact * .042;
+          heat = clamp(heat + .85, 0, 5);
+          damageFlash = .22;
+        }
+        c.speed *= -.22;
+      }
+
+for (const other of cars) {
+        if (other === c || dist(c, other) > 44) continue;
+        if (Math.abs(c.speed) > 85) {
+          health -= Math.abs(c.speed) * .025;
+          heat = clamp(heat + 1, 0, 5);
+          damageFlash = .18;
+          const a = Math.atan2(other.y - c.y, other.x - c.x);
+          move(other, Math.cos(a) * 22, Math.sin(a) * 22, 23);
+          c.speed *= -.3;
+        }
+      }
+    } else {
+      let x = right - left, y = backward - forward;
+      const length = Math.hypot(x, y);
+      if (length) {
+        x /= length; y /= length;
+        player.angle = Math.atan2(y, x);
+        move(player, x * 155 * dt, y * 155 * dt, 11);
+      }
+    }
+
+const p = actor();
+    const nearbyPolice = police.some(c => dist(c, p) < 320);
+    heat = Math.max(0, heat - dt * (nearbyPolice ? .018 : .10));
+    if (heat < .12) { heat = 0; police.length = 0; }
+
+policeTimer -= dt;
+    if (heat > 0 && policeTimer <= 0 && police.length < Math.ceil(heat)) {
+      spawnPolice(); policeTimer = 4;
+    }
+    for (const cop of police) updatePolice(cop, dt);
+
+for (const walker of walkers) {
+      walker.x = walker.baseX + (Math.sin(clock * .23 + walker.phase) + 1) * 100;
+      walker.y = walker.baseY;
+    }
+
+const target = carrying ? destination : pickup;
+    if (jobCooldown <= 0 && dist(p, target) < 62 &&
+        (!vehicle || Math.abs(vehicle.speed) < 65)) {
+      if (!carrying) {
+        carrying = true; jobCooldown = 1;
+        notify("Package collected. Head to " + destination.name + "!");
+      } else {
+        const reward = 300 + Math.floor(dist(pickup, destination) / 7);
+        money += reward; completed++;
+        health = Math.min(100, health + 25);
+        carrying = false; jobCooldown = 2;
+        pickup = destination;
+        destination = choose(jobPoints.filter(point => point !== pickup));
+        notify("Delivered! +$" + reward + " · Health restored");
+      }
+    }
+
+if (health <= 0) respawn();
+
+const focus = actor();
+    camera.x += (focus.x - camera.x) * (1 - Math.exp(-6 * dt));
+    camera.y += (focus.y - camera.y) * (1 - Math.exp(-6 * dt));
+
+$("stats").textContent =
+      "$" + money.toLocaleString() + "  ·  " +
+      (vehicle ? Math.round(Math.abs(vehicle.speed) * .22) + " MPH" : "ON FOOT") +
+      "  ·  " + "★".repeat(Math.ceil(heat)) + "☆".repeat(5 - Math.ceil(heat));
+    $("health").style.width = clamp(health, 0, 100) + "%";
+    $("health").style.background = health < 30 ? "#ff657a" : "#60ead7";
+    $("mission").textContent =
+      (carrying ? "DELIVER → " + destination.name : "PICKUP → " + pickup.name) +
+      " · " + Math.round(dist(focus, carrying ? destination : pickup)) +
+      " m · Jobs: " + completed;
+  }
+
+function rect(x, y, w, h, color) {
+    ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+  }
+
+function circle(x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  }
+
+function drawCar(c, isPolice = false) {
+    ctx.save();
+    ctx.translate(c.x, c.y); ctx.rotate(c.angle);
+    rect(-25, -13, 55, 32, "#0005");
+    rect(-22, -17, 12, 5, "#080d17");
+    rect(11, -17, 12, 5, "#080d17");
+    rect(-22, 12, 12, 5, "#080d17");
+    rect(11, 12, 12, 5, "#080d17");
+    ctx.fillStyle = c.color;
+    ctx.beginPath(); ctx.roundRect(-28, -14, 56, 28, 6); ctx.fill();
+    rect(-12, -11, 24, 22, isPolice ? "#182436" : "#172e45");
+    rect(-9, -10, 5, 20, "#5d94ad");
+    rect(9, -10, 5, 20, "#8ac8d8");
+    rect(24, -11, 4, 6, "#fff1b8");
+    rect(24, 5, 4, 6, "#fff1b8");
+    rect(-28, -11, 3, 6, "#ff475f");
+    rect(-28, 5, 3, 6, "#ff475f");
+    if (isPolice) {
+      rect(-1, -12, 6, 12, Math.sin(clock * 15) > 0 ? "#ff4567" : "#72243c");
+      rect(-1, 0, 6, 12, Math.sin(clock * 15) < 0 ? "#53c6ff" : "#24466b");
+    }
+    if (c === vehicle) {
+      ctx.globalAlpha = .075;
+      ctx.fillStyle = "#fff1bc";
+      ctx.beginPath();
+      ctx.moveTo(27, -10); ctx.lineTo(175, -60);
+      ctx.lineTo(175, 60); ctx.lineTo(27, 10); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+function drawPalm(p) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    circle(5, 7, 22, "#0002");
+    circle(0, 0, 5, "#b68d77");
+    for (let i = 0; i < 6; i++) {
+      ctx.rotate(TAU / 6);
+      ctx.fillStyle = i % 2 ? "#31887e" : "#43a390";
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(9, -18, 33, -11);
+      ctx.quadraticCurveTo(17, -7, 0, 0);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+function drawMarker(point, color) {
+    const pulse = Math.sin(clock * 4) * 5;
+    circle(point.x, point.y, 49 + pulse, color + "18");
+    ctx.strokeStyle = color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(point.x, point.y, 42 + pulse, 0, TAU); ctx.stroke();
+    ctx.save(); ctx.translate(point.x, point.y); ctx.rotate(Math.PI / 4);
+    rect(-11, -11, 22, 22, color);
+    ctx.restore();
+    ctx.textAlign = "center";
+    ctx.font = "bold 12px system-ui";
+    ctx.fillStyle = color;
+    ctx.fillText(carrying ? "DELIVERY" : "PICKUP", point.x, point.y - 63);
+  }
+
+function drawMinimap() {
+    const size = W < 600 ? 116 : 175;
+    const x = W - size - 18, y = H - size - 75;
+    const sx = size / WORLD.w, sy = size / WORLD.h;
+    ctx.save();
+    rect(x - 5, y - 5, size + 10, size + 10, "#081322df");
+    rect(x, y, size, size, "#104957");
+    rect(x, y, WORLD.land * sx, size, "#344150");
+    for (const b of buildings)
+      rect(x + b.x * sx, y + b.y * sy, b.w * sx, b.h * sy, "#131f32");
+    const t = carrying ? destination : pickup;
+    circle(x + t.x * sx, y + t.y * sy, 4, carrying ? "#ff73bb" : "#61eee0");
+    for (const c of police) circle(x + c.x * sx, y + c.y * sy, 2.5, "#ff627d");
+    const p = actor();
+    circle(x + p.x * sx, y + p.y * sy, 4, "#ffffff");
+    ctx.fillStyle = "#8ce4e1"; ctx.font = "10px system-ui"; ctx.textAlign = "left";
+    ctx.fillText("NEON COAST / GPS", x, y - 12);
+    ctx.restore();
+  }
+
+function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rect(0, 0, W, H, "#091827");
+
+ctx.save();
+    const zoom = W < 600 ? .78 : 1;
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camera.x, -camera.y);
+
+rect(0, 0, WORLD.w, WORLD.h, "#164557");
+    rect(0, 0, WORLD.land, WORLD.h, "#293440");
+    rect(2400, 0, 50, WORLD.h, "#b7a08c");
+    rect(2450, 0, 12, WORLD.h, "#71c4bb");
+
+// Sidewalks around each city block.
+    for (let x = 0; x < 2400; x += 400)
+      for (let y = 0; y < 2200; y += 400) {
+        rect(x + 100, y + 100, 300, 300, "#69727b");
+        rect(x + 112, y + 112, 276, 276, "#3c5054");
+      }
+
+ctx.strokeStyle = "#cec39465"; ctx.lineWidth = 2;
+    ctx.setLineDash([22, 22]);
+    for (let x = 50; x < 2400; x += 400) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD.h); ctx.stroke();
+    }
+    for (let y = 50; y < WORLD.h; y += 400) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(2400, y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+// Crosswalks.
+    for (let x = 0; x < 2400; x += 400)
+      for (let y = 0; y < WORLD.h; y += 400)
+        for (let stripe = 0; stripe < 6; stripe++) {
+          rect(x + 13 + stripe * 13, y + 104, 7, 17, "#a7b2b455");
+          rect(x + 104, y + 13 + stripe * 13, 17, 7, "#a7b2b455");
+        }
+
+// Animated waterfront.
+    ctx.strokeStyle = "#7be7dc22"; ctx.lineWidth = 2;
+    for (let x = 2490; x < WORLD.w; x += 45) {
+      ctx.beginPath();
+      for (let y = 0; y <= WORLD.h; y += 20) {
+        const xx = x + Math.sin(y * .024 + clock * 1.2 + x) * 7;
+        if (y === 0) ctx.moveTo(xx, y); else ctx.lineTo(xx, y);
+      }
+      ctx.stroke();
+    }
+
+for (const b of buildings) {
+      rect(b.x + 10, b.y + 13, b.w, b.h, "#0004");
+      rect(b.x, b.y, b.w, b.h, b.color);
+      rect(b.x + 8, b.y + 8, b.w - 16, b.h - 16, "#101c2b65");
+      rect(b.x, b.y, b.w, 4, b.neon);
+      rect(b.x, b.y, 4, b.h, b.neon + "80");
+      rect(b.x + 65, b.y + 67, 70, 67, "#1b2737");
+      rect(b.x + 71, b.y + 73, 58, 55, "#3d4a58");
+      for (let i = 18; i < b.w - 10; i += 29) {
+        rect(b.x + i, b.y + 18, 12, 8, b.neon + "a0");
+        rect(b.x + i, b.y + b.h - 25, 12, 8, "#f4d8a08a");
+      }
+      ctx.textAlign = "center"; ctx.font = "bold 11px system-ui";
+      ctx.fillStyle = b.neon;
+      ctx.fillText(b.name, b.x + b.w / 2, b.y + b.h - 42);
+    }
+
+drawMarker(carrying ? destination : pickup, carrying ? "#ff73bb" : "#61eee0");
+
+for (const walker of walkers) {
+      circle(walker.x + 3, walker.y + 3, 8, "#0004");
+      circle(walker.x, walker.y, 7, walker.color);
+      circle(walker.x, walker.y - 2, 3, "#573c42");
+    }
+    for (const car of cars) drawCar(car);
+    for (const cop of police) drawCar(cop, true);
+
+if (!vehicle) {
+      ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(player.angle);
+      circle(2, 3, 12, "#0005");
+      rect(-7, -10, 14, 20, "#ff72b5");
+      circle(0, 0, 7, "#edc59e");
+      rect(4, -5, 4, 10, "#302b3a");
+      ctx.restore();
+
+const nearby = cars.some(c => dist(c, player) < 72);
+      if (nearby) {
+        ctx.textAlign = "center"; ctx.font = "bold 12px system-ui";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("[ E ] DRIVE", player.x, player.y - 32);
+      }
+    }
+    for (const palm of palms) drawPalm(palm);
+    for (let y = 130; y < WORLD.h; y += 175) drawPalm({ x: 2425, y });
+
+ctx.restore();
+
+// Screen-edge direction arrow for the current objective.
+    const target = carrying ? destination : pickup;
+    const tx = (target.x - camera.x) * zoom;
+    const ty = (target.y - camera.y) * zoom;
+    if (Math.abs(tx) > W / 2 - 65 || Math.abs(ty) > H / 2 - 65) {
+      const factor = Math.min((W / 2 - 48) / Math.max(1, Math.abs(tx)),
+                              (H / 2 - 65) / Math.max(1, Math.abs(ty)));
+      ctx.save();
+      ctx.translate(W / 2 + tx * factor, H / 2 + ty * factor);
+      ctx.rotate(Math.atan2(ty, tx));
+      ctx.fillStyle = carrying ? "#ff73bb" : "#61eee0";
+      ctx.beginPath();
+      ctx.moveTo(15, 0); ctx.lineTo(-10, -10); ctx.lineTo(-5, 0);
+      ctx.lineTo(-10, 10); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+
+drawMinimap();
+    if (damageFlash > 0) rect(0, 0, W, H, "#ff365b25");
+  }
+
+function frame(time) {
+    const dt = Math.min((time - last) / 1000 || 0, .035);
+    last = time;
+    if (started && !paused) update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+$("stats").textContent = "$0 · ON FOOT · ☆☆☆☆☆";
+  $("mission").textContent = "Your first pickup: Cassette Club";
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
